@@ -1,44 +1,73 @@
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404
 
-from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
+from rest_framework import serializers
+from django_apps.customer.models import Customer
+from typing import Optional
+from customer.constants import Status as customer_status
 
-from . import serializers
+
 from . import models
 
-class HelloApiView(APIView):
-    """Test Api View."""
+class AddCustomerView(APIView):
+    class InputSerializer(serializers.Serializer):
+        external_id = serializers.CharField(max_length=60)
+        score = serializers.DecimalField(max_digits=12, decimal_places=2)
+        preapproved_at = serializers.DateTimeField()
 
-    serializer_class = serializers.HelloSerializers
+    class OutputSerializer(serializers.Serializer):
+        id = serializers.UUIDField()
 
-    def get(self, request, format=None):
-        """Returns a list of api view features"""
-
-        an_apiview = [
-            'Uses HTTP methods as function (get, post, patch, put, delete)',
-            'It is similar to a tadicional Django',
-            'Gives you the most control over your application logic'
-            'Is mapped manually to URLs'
-        ]
-
-        return Response({'message': 'Hello!', 'an_apiview': an_apiview})
-    
     def post(self, request):
-        """Create hello message with our name"""
+    
+        input_serializer = self.InputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
 
-        serializer = serializers.HelloSerializers(data=request.data)
+        import pdb
+        pdb.set_trace()
+    
+        customer = models.Customer(
+            external_id = input_serializer.data['external_id'],
+            score = input_serializer.data['score'],
+            preapproved_at = input_serializer.data['preapproved_at']
+        )
 
-        if serializer.is_valid():
-            name = serializer.data.get('name')
-            message = 'Hello {0}'.format(name)
-            return Response({'message': message})
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        customer.save()
+
+        output_data = self.OutputSerializer(customer).data
+
+        return Response(output_data, status=status.HTTP_201_CREATED)
+    
+class ActivateCustomerView(APIView):
+    class OutputSerializer(serializers.Serializer):
+        id = serializers.UUIDField()
+        external_id = serializers.CharField()
+        status = serializers.IntegerField()
+
+    def patch(self, request, external_id):
+        customer = get_object_or_404(Customer, external_id=external_id)
+        customer.status = customer_status.ACTIVE
+        customer.save()
+
+        output_data = self.OutputSerializer(customer).data
+
+        return Response(output_data, status=status.HTTP_200_OK)
         
-class CustomerViewSet(viewsets.ModelViewSet):
-    """Handles creating, creating and active customer."""
 
-    serializer_class = serializers.CustomerSerializers
-    queryset = models.Customer.objects.all()
+class ListCustomerView(generics.ListAPIView):
+    class OutputSerializer(serializers.Serializer):
+        id = serializers.UUIDField()
+        external_id = serializers.CharField(max_length=60)
+        status = serializers.IntegerField()
+        score = serializers.DecimalField(max_digits=12, decimal_places=2)
+        preapproved_at = serializers.DateTimeField()
+
+    serializer_class = OutputSerializer
+    def get_queryset(self, external_id: Optional[str] = None):
+        queryset = Customer.objects.all()
+        if self.kwargs.get('external_id') is not None:
+            queryset = queryset.filter(external_id=self.kwargs['external_id'])
+        return queryset
+        
